@@ -12,19 +12,22 @@ import (
 	"time"
 
 	"github.com/go-redis/redis/v8"
-	// socketio "github.com/googollee/go-socket.io"
 	"github.com/gorilla/mux"
-	// "github.com/rs/cors"
 )
 
 var client *redis.Client
-// var socketSvr *socketio.Server
 
 var ctx = context.Background()
 
 type Setup struct {
 	ID     string `json:"Id"`
 	Secret string `json:"Secret"`
+}
+
+type Entry struct {
+	Text string `json:"text"`
+	Line int    `json:"line"`
+	Id   string `json:"id"`
 }
 
 func startLogging(w http.ResponseWriter, r *http.Request) {
@@ -58,59 +61,35 @@ func addLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// streamName := fmt.Sprintf("%s-stream", id)
-	// terminate := make(chan bool)
-	// go func() {
-	// 	redisMessageID := "0"
-	// 	for {
-	// 		select {
-	// 		case <-terminate:
-	// 			log.Println("GO ROUTIne stopped")
-	// 			return
-	// 		default:
-	// 			res, err := client.XRead(ctx, &redis.XReadArgs{
-	// 				Streams: []string{streamName, redisMessageID},
-	// 				Block:   1 * time.Second,
-	// 			}).Result()
-	// 			if err != nil {
-	// 				// Didn't get data in time (let's check term status)
-	// 				continue
-	// 			}
-	// 			for _, e := range res {
-	// 				for _, m := range e.Messages {
-	// 					log.Println("Go Routine msg")
-
-	// 					redisMessageID = m.ID
-	// 					// We only want this is we're not using redis adapter I think?
-	// 					// if server.RoomLen("/", id) > 0 {
-	// 					j, _ := json.Marshal(m.Values)
-	// 					socketSvr.BroadcastToRoom("/", id, "log", string(j))
-	// 					// }
-	// 				}
-	// 			}
-	// 		}
-	// 	}
-	// }()
-
 	i := 0
 	for scanner.Scan() {
 		log.Printf("Got data: %s", scanner.Text())
-		err := client.XAdd(ctx, &redis.XAddArgs{
+
+		streamKey, err := client.XAdd(ctx, &redis.XAddArgs{
 			Stream:       fmt.Sprintf("%s-stream", id),
 			MaxLen:       0,
 			MaxLenApprox: 0,
 			ID:           "",
 			Values: map[string]interface{}{
-				"entry":   scanner.Text(),
-				"lineNum": i,
+				"text": scanner.Text(),
+				"line": i,
 			},
-		}).Err()
-
+		}).Result()
+		// We use pub/sub in combination w/ streams to avoiding blocking
+		// on XREAD -> we coorelate them using streamKey (to request past ranges)
+		entry := Entry{
+			Line: i,
+			Text: scanner.Text(),
+			Id:   streamKey,
+		}
+		// This is a different ID (this is the
+		// stream key for this particular message instead of the UID)
 		if err != nil {
 			w.WriteHeader(http.StatusTeapot)
 			return
 		}
-		err = client.Publish(ctx, fmt.Sprintf("%s-pubsub", id), scanner.Text()).Err()
+		bytes, err := json.Marshal(entry)
+		err = client.Publish(ctx, fmt.Sprintf("%s-pubsub", id), string(bytes)).Err()
 
 		if err != nil {
 			w.WriteHeader(http.StatusTeapot)
@@ -118,9 +97,6 @@ func addLogs(w http.ResponseWriter, r *http.Request) {
 		}
 		i++
 	}
-	// client.Del(ctx, fmt.Sprintf("%s-stream", id))
-	// terminate <- true
-	client.Del(ctx, id)
 	log.Printf("Closed connection for %s", id)
 }
 
@@ -135,41 +111,13 @@ func main() {
 		log.Fatal("Unable to connect to Redis", err)
 	}
 	log.Println("Connected to Redis server")
-
-	// socketSvr = socketio.NewServer(nil)
-
-	// _, err = socketSvr.Adapter(&socketio.RedisAdapterOptions{
-	// 	Addr:   addr,
-	// 	Prefix: "socket.io",
-	// })
-
 	if err != nil {
 		log.Fatal("Unable to connect to Redis for socket.io", err)
 	}
 
-	// socketSvr.OnConnect("/", func(s socketio.Conn) error {
-	// 	// s.SetContext("")
-	// 	fmt.Println("connected:", s.ID())
-	// 	return nil
-	// })
-
-	// socketSvr.OnDisconnect("/", func(s socketio.Conn, reason string) {
-	// 	fmt.Println("closed", reason)
-	// })
-	// go socketSvr.Serve()
-	// defer socketSvr.Close()
-
 	r := mux.NewRouter()
 	r.HandleFunc("/start", startLogging).Methods("GET")
 	r.HandleFunc("/push/{id}", addLogs).Methods("POST")
-	// r.Handle("/socket.io/", socketSvr)
-
-	// c := cors.New(cors.Options{
-	// 	AllowedOrigins:   []string{"http://localhost:3000"},
-	// 	AllowCredentials: true,
-	// })
-
-	// handler := c.Handler(r)
 
 	srv := &http.Server{
 		Handler:      r,

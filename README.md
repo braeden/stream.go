@@ -5,6 +5,10 @@ Pipe your input and get handed a custom URL to monitor the progress.
 
 Using: Redis (queues, sets, pub/sub), Go, React.js, Socket.io, Express, TypeScript
 
+# High-Level Diagram
+
+![](./diagram.png)
+
 # Todo
 - Get MVP of socketio/client side working
 - Clean up shared code components

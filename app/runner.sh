@@ -1,5 +1,5 @@
 #!/bin/bash
-for i in {1..100}
+for i in {1..10000}
 do
     echo "Line: $i"
     sleep 0.01

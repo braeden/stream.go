@@ -25,9 +25,17 @@ subClient.on('error', err => {
     await subClient.connect();
     await appSubClient.connect();
 })();
-
-
-io.adapter(createAdapter(pubClient, subClient));
+const handler = (message, channel) => {
+    const id = channel.split('-')[0]
+    // TODO: check that this checks size across adapters?
+    // if (!io.sockets.adapter.rooms.get(id)) {
+    //     console.log('Last client disconnected')
+    //     await subClient.unsubscribe(channel);
+    // }
+    io.to(id).emit('log', message)
+};
+// Renable this when io adapter updates
+// io.adapter(createAdapter(pubClient, subClient));
 
 io.on('connection', socket => {
     console.log(`[${io.engine.clientsCount}] a user connected: ${socket.id}`);
@@ -40,20 +48,22 @@ io.on('connection', socket => {
         if (await appClient.EXISTS(id)) {
             console.log('joined')
             socket.join(id);
-            await appSubClient.subscribe(`${id}-pubsub`)
+            await appSubClient.subscribe(`${id}-pubsub`, handler)
         }
     });
 
     socket.on('askRange', async data => {
         if (data) {
             try {
-                const { id, earliestStreamId = '+', count: COUNT = 100 } = JSON.parse(data)
+                const { id, earliestStreamId = '+', count: COUNT } = JSON.parse(data)
                 // TODO: Validate that socket is in the room it requests
                 // const socketInRoom = await io.of('/').adapter.sockets(new Set([id])).has(socket.id)
-                if (!id || !(await appClient.EXISTS(id)) || COUNT > 1000) {
+                if (!id || !(await appClient.EXISTS(id))) {
                     throw ('Invalid room or arguments');
                 }
-                const res = await appClient.XREVRANGE(`${id}-stream`, earliestStreamId, '-', { COUNT })
+                const res = COUNT ?
+                    await appClient.XREVRANGE(`${id}-stream`, earliestStreamId, '-', { COUNT })
+                    : await appClient.XREVRANGE(`${id}-stream`, '+', '-')
                 const sorted = res.map(({ id, message }) => ({ ...message, id })).sort((a, b) => a.line - b.line)
                 // We may want to sort by redis id (unix timestamp - #) instead of line
                 if (earliestStreamId !== '+') {
@@ -69,14 +79,15 @@ io.on('connection', socket => {
 
 });
 
-appSubClient.on('message', async (channel, message) => {
-    const id = channel.split('-')[0]
-    // TODO: check that this checks size across adapters?
-    if (!io.sockets.adapter.rooms.get(id)) {
-        console.log('Last client disconnected')
-        subClient.unsubscribe(channel);
-    }
-    io.to(id).emit('log', message)
-})
+// appSubClient.on('message', (channel, message) => {
+//     console.log('here')
+//     const id = channel.split('-')[0]
+//     // TODO: check that this checks size across adapters?
+//     if (!io.sockets.adapter.rooms.get(id)) {
+//         console.log('Last client disconnected')
+//         subClient.unsubscribe(channel);
+//     }
+//     io.to(id).emit('log', message)
+// })
 
 server.listen(port, () => console.log(`Socket server is up! ${port}!`));

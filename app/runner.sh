@@ -2,5 +2,5 @@
 for i in {1..10000}
 do
     echo "Line: $i"
-    sleep 0.01
+    sleep 0.1
 done

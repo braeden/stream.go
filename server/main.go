@@ -63,7 +63,7 @@ func addLogs(w http.ResponseWriter, r *http.Request) {
 
 	i := 0
 	for scanner.Scan() {
-		log.Printf("Got data: %s", scanner.Text())
+		// log.Printf("Got data: %s", scanner.Text())
 
 		streamKey, err := client.XAdd(ctx, &redis.XAddArgs{
 			Stream:       fmt.Sprintf("%s-stream", id),
